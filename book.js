@@ -7,6 +7,7 @@ var SHIFT = 87;
 var URL_PREFIX = 'http://rus-linux.net';
 var URL_MAINPAGE = 'http://rus-linux.net/MyLDP/BOOKS/Linux_Foundations/toc.html';
 var HTML_HEAD_MAINPAGE = '<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Linux book</title></head>';
+var PORT = 3579;
 
 var chaptersHTMLs = [];
 var chaptersContents = [];
@@ -67,7 +68,7 @@ var startServer = function () {
     var pages = createHTMLPages();
     var mainPage = createMainPage(pages);
     var app = express();
-    app.set('port', 3579);
+    app.set('port', PORT);
     http.createServer(app).listen(app.get('port'), function () {
         console.log('Started on port ', app.get('port'));
     });
