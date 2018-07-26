@@ -1,76 +1,134 @@
 var http = require('http');
-var markdown = require('markdown');
+var markdown = require('markdown').markdown;
 var TurndownService = require('turndown');
 var express = require('express');
 
 var SHIFT = 87;
 var URL_PREFIX = 'http://rus-linux.net';
 var URL_MAINPAGE = 'http://rus-linux.net/MyLDP/BOOKS/Linux_Foundations/toc.html';
+var HTML_HEAD_MAINPAGE = '<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Linux book</title></head>';
 
 var chaptersHTMLs = [];
 var chaptersContents = [];
-var contentLoaded = false;
-
-var getPages = function() {
+/**
+ * @description Создаёт из контента в формате markdown контент в формате html 
+ * и присваивает каждому документу УРЛ, по которому этот документ будет отдаваться
+ * @return {Array} Массив объектов, где объект это контент в html и УРЛ, который ему соответствует
+ */
+var createHTMLPages = function() {
     return chaptersContents.map(function (chapterContent, index) {
         return {
-            mdContent: chapterContent,
-            url: '/' + index
+            content: markdown.toHTML(chapterContent),
+            url: '/chapter' + index
         };
     });
 };
+/**
+ * @description Из контента получает название Части книги, которой этот контент принадлежит
+ * @param {String} chapterContent Контент в формате markdown 
+ * @return {String} Название Части книги
+ */
 var getPartName = function(chapterContent) {
     var name = chapterContent.match(/Часть.+</)[0];
-    return name.slice(0, name.length - 2);
+    return name.slice(0, name.length - 1);
 };
+/**
+ * @description Из контента получает название Главы книги, которой этот контент принадлежит
+ * @param {String} chapterContent Контент в формате markdown 
+ * @return {String} Название Главы книги
+ */
 var getChapterName = function(chapterContent) {
     var name = chapterContent.match(/<h2>.+<\/h2>/)[0];
     return name.slice(4, name.length - 5);
 };
-var createMainPage = function () {
-    var headHMTL = '<!DOCTYPE html><html><head><meta charset="utf-8" /><title>Linux book</title><link rel="stylesheet"  href="static/style.css" /></head>';
-    var bodyHTML = '<body><h1>Welcome to LINUX book</h1>';
+/**
+ * @description Создаёт главную страничку (оглавление книги)
+ * @param {Array} pages Массив объектов, которые представляют контент страницы в формате html и соответствующий им url 
+ * @return {String} Главная страничка в формате html
+ */
+var createMainPage = function (pages) {
+    var bodyHTML = '<body style="text-align: center;"><h1>Welcome to LINUX book</h1>';
     var addedParts = [];
-    chaptersContents.forEach(function(chapterContent, index) {
-        var partName = getPartName(chapterContent);
+    pages.forEach(function(page, index) {
+        var partName = getPartName(page.content);
         if(addedParts.indexOf(partName) === -1) {
             bodyHTML += '<h2>' + partName + '</h2>';
+            addedParts.push(partName);
         }
-        var chapterName = getChapterName(chapterName);
-        bodyHTML += '<h3> <a href=' + pages[index].url + '>'  + chapterContent + '</a></h3>';
+        var chapterName = getChapterName(page.content);
+        bodyHTML += '<h3> <a href=' + page.url + '>'  + chapterName + '</a></h3>';
     });
-    return headHMTL + bodyHTML + '</body></html>';
+    return HTML_HEAD_MAINPAGE + bodyHTML + '</body></html>';
 };
+/**
+ * @description Запускает сервер. Устанавливает MiddleWares.
+ */
 var startServer = function () {
-    var pages = getPages();
+    var pages = createHTMLPages();
     var mainPage = createMainPage(pages);
     var app = express();
     app.set('port', 3579);
     http.createServer(app).listen(app.get('port'), function () {
         console.log('Started on port ', app.get('port'));
     });
-    console.log(mainPage);
-    // app.use(function(req, res, next) {
-    //   if(req.url === '/') {
-    //     res.end(mainPage);
-    //     return;
-    //   }
-    //   var chapterNumber = req.url.match(/[0-9]+/)[0];
-    //   console.log('The chapter number', chapterNumber);
-    //   res.end(markdown.toHTML(chaptersContents[Number(chapterNumber)]));
-    // });
+    app.use(function(req, res, next) {
+        if(req.url === '/') {
+            res.end(mainPage);
+        } else {
+            next();
+        }
+    });
+    app.use(function(req, res, next) {
+        var indexDemandedPage;
+        pages.some(function(page, index) {
+            if(req.url === page.url) {
+                indexDemandedPage = index;
+                return true;
+            }
+            return false;
+        });
+        if(indexDemandedPage === undefined) {
+            next();
+        }
+        else {
+            res.end(pages[indexDemandedPage].content);
+        } 
+    });
+    app.use(function(req, res, next) {
+        res.end('PAGE NOT FOUND');
+    });
 };
+/**
+ * @description Определяет начало контента в html документе
+ * @param {String} htmlDoc
+ * @return {Number} Индекс начала контента
+ */
 var getBeginContentIndex = function (htmlDoc) {
     return htmlDoc.match(/<h1>/).index;
 };
+/**
+ * @description Определяет конец контента в html документе
+ * @param {String} htmlDoc
+ * @return {Number} Индекс конца документа
+ */
 var getEndContentIndex = function (htmlDoc) {
     return htmlDoc.match(/background: #ecedef/).index - SHIFT;
 };
+/**
+ * @description Получает из целого html документа контент
+ * @param {String} htmlDoc 
+ * @return {String} Контент документа
+ */
 var getHTMLContent = function (htmlDoc) {
     var indexBegin = getBeginContentIndex(htmlDoc);
     var indexEnd = getEndContentIndex(htmlDoc);
     return htmlDoc.slice(indexBegin, indexEnd);
 };
+/**
+ * @description Из главной страницы сайта linuxbook, извлекает УРЛы на главы книги
+ * @param {String} mainPageHTML 
+ * @return {Array} Массив УРЛов
+ */
 var getChaptersUrls = function (mainPageHTML) {
     var wholeChaptersUrls = mainPageHTML.match(/\/MyLDP\/BOOKS\/Linux_Foundations\/[0-9]+\/ch[0-9]+.html/g);
     var uniqueChaptersUrls = [];
@@ -82,7 +140,9 @@ var getChaptersUrls = function (mainPageHTML) {
     });
     return uniqueChaptersUrls;
 };
-
+/**
+ * @description Извлекает контент из глав, переводит контент из html в markdown, запускает сервер на отдачу контента
+ */
 var getChaptersContent = function() {
     if(chaptersUrls.length !== 0) {
         http.get(chaptersUrls[0], (res) => {
@@ -107,13 +167,20 @@ var getChaptersContent = function() {
     }).map((chapterContentHTML) => {
         return turndownService.turndown(chapterContentHTML);
     });
-    contentLoaded = true;
     startServer();
 };
+/**
+ * @description Скачивает сайт и извлекает контент
+ * @param {String} mainPage Главная страница сайта
+ */
 var getHostContent = function(mainPage) {
     chaptersUrls = getChaptersUrls(mainPage);
     getChaptersContent(chaptersUrls);
 };
+/**
+ * @description Колбэк на скачивание главной страницы сайта
+ * @param {Object} res
+ */
 var onMainPageLoading= function (res) {
     var mainPage = '';
     res.on('data', (dataChunk) => {
